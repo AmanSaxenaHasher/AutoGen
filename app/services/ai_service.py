@@ -1,49 +1,41 @@
 import os
 from io import BytesIO
-from langchain.chains import LLMChain
-from langchain.prompts import PromptTemplate
-from langchain_groq import ChatGroq
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from docx import Document
-import subprocess
 from pathlib import Path
 import shutil
+import subprocess
 import traceback
 
+from docx import Document
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_groq import ChatGroq
+
+
+# Initialize Groq LLM
 def initialize_groq_llm():
-    api_key = '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'
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not set in the environment variables.")
-    return ChatGroq(api_key=api_key, model="llama-3.3-70b-versatile")  # Updated to use the specified model
+    return ChatGroq(api_key=api_key, model="llama-3-70b-8192")
 
-# Update the analyze_srs_document function to handle .docx files
-def analyze_srs_document(srs_document):
-    """
-    Analyze the SRS document (text or image) to extract key software requirements.
 
-    Args:
-        srs_document: The input SRS document (binary content of a .docx file).
-
-    Returns:
-        dict: Extracted requirements including API endpoints, database schema, etc.
-    """
-    # Read the .docx file content
+# Analyze SRS document
+def analyze_srs_document(srs_document_bytes):
     try:
-        # Wrap the binary content in a BytesIO stream
-        doc = Document(BytesIO(srs_document))
-        # Clean up the extracted text by removing extra whitespace and tabs
-        content = "\n".join([paragraph.text.strip().replace("\t", " ") for paragraph in doc.paragraphs if paragraph.text.strip()])
+        doc = Document(BytesIO(srs_document_bytes))
+        content = "\n".join([
+            paragraph.text.strip().replace("\t", " ")
+            for paragraph in doc.paragraphs if paragraph.text.strip()
+        ])
     except Exception as e:
         raise ValueError(f"Error reading .docx file: {str(e)}")
 
-    # Split the document into smaller chunks
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=3000, chunk_overlap=200)
     chunks = text_splitter.split_text(content)
 
-    # Initialize the Groq LLM
     llm = initialize_groq_llm()
 
-    # Process each chunk and collect results for each section separately
     formatted_results = {
         "api_endpoints": [],
         "backend_logic": [],
@@ -51,223 +43,98 @@ def analyze_srs_document(srs_document):
         "authentication_requirements": []
     }
 
-    # Refine the section-specific prompts to instruct the LLM to write from a requirements perspective
     section_prompts = {
-        "api_endpoints": "Extract all API endpoints and their parameters from the document. Write the endpoints as requirements, specifying what each endpoint should do, the HTTP method, and the required parameters.",
-        "backend_logic": "Extract all backend logic (business rules, required computations) from the document. Write the logic as requirements, specifying what the system must do and the rules it must enforce.",
-        "database_schema": "Extract the database schema (tables, relationships, constraints) from the document. Write the schema as requirements, specifying what tables must exist, their columns, data types, and relationships.",
-        "authentication_requirements": "Extract all authentication and authorization requirements from the document. Write the requirements specifying what authentication methods, roles, and permissions the system must implement."
+        "api_endpoints": "Extract all API endpoints and their parameters. Include the HTTP method, path, and purpose.",
+        "backend_logic": "Extract all backend logic. Include business rules and system behavior.",
+        "database_schema": "Extract all database schema elements. Include table names, columns, types, and relationships.",
+        "authentication_requirements": "Extract authentication and authorization requirements. Include roles, methods, and permissions."
     }
 
-    for section, section_prompt in section_prompts.items():
-        section_results = []
-        for chunk in chunks:
-            # Update the prompt for the specific section
-            prompt = PromptTemplate(
-                input_variables=["document"],
-                template=f"""
-                You are an expert software engineer. Analyze the following Software Requirements Specification (SRS) document and {section_prompt}
+    for section, instructions in section_prompts.items():
+        prompt_template = PromptTemplate(
+            input_variables=["document"],
+            template=f"You are an expert software engineer. {instructions}\n\nDocument:\n{{document}}"
+        )
+        chain = LLMChain(llm=llm, prompt=prompt_template)
+        section_results = [chain.run(document=chunk) for chunk in chunks]
 
-                Document:
-                {{document}}
-                """
-            )
-
-            # Create a LangChain LLMChain
-            chain = LLMChain(llm=llm, prompt=prompt)
-
-            # Run the chain for the current chunk
-            result = chain.run(document=chunk)
-            section_results.append(result)
-
-        # Combine results for the section
         formatted_results[section] = [
-            result.replace("\n", " ").replace("\t", " ").strip() for result in section_results if result.strip()
+            result.strip().replace("\n", " ").replace("\t", " ")
+            for result in section_results if result.strip()
         ]
-
-    # Ensure all sections are populated
-    for key in formatted_results:
-        if not formatted_results[key]:
-            formatted_results[key] = ["No data extracted"]
 
     return formatted_results
 
-# Define a custom task-based execution pipeline to automate project generation
-def execute_pipeline(requirements):
-    """
-    Custom pipeline to automate project generation based on extracted requirements.
 
-    Args:
-        requirements (dict): Extracted requirements including API endpoints, backend logic, database schema, and authentication requirements.
-
-    Returns:
-        None
-    """
-    try:
-        print("Step 1: Analyzing SRS Document...")
-        extracted_requirements = analyze_srs_document(requirements.get("srs_document"))
-        print("SRS Document analyzed successfully.")
-
-        print("Step 2: Generating Code...")
-        generate_code(extracted_requirements)
-        print("Code generation completed successfully.")
-
-        print("Step 3: Setting Up Environment...")
-        setup_environment()
-        print("Environment setup completed successfully.")
-
-        print("Step 4: Setting Up Database...")
-        setup_database()
-        print("Database setup completed successfully.")
-
-        print("Step 5: Validating Project...")
-        validate_project()
-        print("Project validation completed successfully.")
-
-    except Exception as e:
-        print(f"Error during pipeline execution: {str(e)}")
-        raise
-
-# Placeholder functions for each node
+# Generate Code
 def generate_code(requirements):
-    print("Generating code based on requirements...")
+    print("Generating code...")
     project_root = Path("c:/study/autogen/generated_project")
-    
-    # Check if the project directory exists and remove it if it does
-    project_dir = Path("c:/study/autogen/generated_project")
-    if project_dir.exists():
-        print("Existing project directory found. Removing it...")
-        shutil.rmtree(project_dir)
-        print("Existing project directory removed.")
+    if project_root.exists():
+        shutil.rmtree(project_root)
+    project_root.mkdir(parents=True)
 
-    project_root.mkdir(exist_ok=True)
-
-    # Define the folder structure
     folders = [
-        "app/api/routes",
-        "app/models",
-        "app/services",
-        "app/core",
-        "tests"
+        "app/api/routes", "app/models", "app/services",
+        "app/core", "tests"
     ]
-
     for folder in folders:
         (project_root / folder).mkdir(parents=True, exist_ok=True)
 
-    # Initialize the Groq LLM
     llm = initialize_groq_llm()
 
-    # Ensure the input to `llm.generate` is properly formatted as a list of dictionaries
-    main_prompt = [{"role": "system", "content": "Generate the main entry point for a FastAPI application."}]
-    main_code = llm.generate(messages=main_prompt)
-    if main_code.strip():
-        (project_root / "app/main.py").write_text(main_code)
-    else:
-        print("Error: LLM did not generate code for main.py")
+    prompts = {
+        "app/main.py": "Generate the main entry point (main.py) for a FastAPI application.",
+        "app/api/routes/__init__.py": "Generate FastAPI routes based on typical extracted API endpoints.",
+        "app/models/__init__.py": "Generate Pydantic models for database schema and request/response.",
+        "app/services/__init__.py": "Generate service layer functions using FastAPI conventions.",
+        "app/core/config.py": "Generate configuration (settings, DB URI) for a FastAPI project."
+    }
 
-    # Similarly update other prompts to be lists of dictionaries
-    routes_prompt = [{"role": "system", "content": "Generate API routes based on the extracted requirements."}]
-    routes_code = llm.generate(messages=routes_prompt)
-    if routes_code.strip():
-        (project_root / "app/api/routes/__init__.py").write_text(routes_code)
-    else:
-        print("Error: LLM did not generate code for routes.")
+    for path_str, message in prompts.items():
+        full_path = project_root / path_str
+        response = llm.invoke(message)
+        full_path.write_text(response.strip())
 
-    models_prompt = [{"role": "system", "content": "Generate Pydantic models based on the extracted requirements."}]
-    models_code = llm.generate(messages=models_prompt)
-    if models_code.strip():
-        (project_root / "app/models/__init__.py").write_text(models_code)
-    else:
-        print("Error: LLM did not generate code for models.")
-
-    services_prompt = [{"role": "system", "content": "Generate service functions based on the extracted requirements."}]
-    services_code = llm.generate(messages=services_prompt)
-    if services_code.strip():
-        (project_root / "app/services/__init__.py").write_text(services_code)
-    else:
-        print("Error: LLM did not generate code for services.")
-
-    config_prompt = [{"role": "system", "content": "Generate a configuration file for the FastAPI project."}]
-    config_code = llm.generate(messages=config_prompt)
-    if config_code.strip():
-        (project_root / "app/core/config.py").write_text(config_code)
-    else:
-        print("Error: LLM did not generate code for config.")
-
-    print("Code generation completed successfully.")
+    print("Code generation completed.")
 
 
+# Setup Environment
 def setup_environment():
-    print("Setting up virtual environment and installing dependencies...")
+    print("Setting up virtual environment...")
     project_root = Path("c:/study/autogen/generated_project")
-
-    # Create a virtual environment
     venv_path = project_root / "venv"
-    try:
-        print(f"Creating virtual environment at {venv_path}...")
-        process = subprocess.Popen(
-            ["python", "-m", "venv", str(venv_path)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        stdout, stderr = process.communicate()
-        if process.returncode != 0:
-            print(f"Error creating virtual environment: {stderr.decode()}")
-            raise Exception(stderr.decode())
-        print(stdout.decode())
-    except Exception as e:
-        print(f"Error creating virtual environment: {e}")
-        print(traceback.format_exc())
-        raise
 
-    # Activate the virtual environment and install dependencies
+    try:
+        subprocess.run(["python", "-m", "venv", str(venv_path)], check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Virtual environment creation failed: {e}")
+
     pip_path = venv_path / "Scripts" / "pip"
     requirements_file = Path("c:/study/autogen/srs-analyzer/requirements.txt")
 
     try:
         if requirements_file.exists():
-            print("Installing dependencies from requirements.txt...")
-            process = subprocess.Popen(
-                [str(pip_path), "install", "-r", str(requirements_file)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate()
-            if process.returncode != 0:
-                print(f"Error installing dependencies: {stderr.decode()}")
-                raise Exception(stderr.decode())
-            print(stdout.decode())
+            subprocess.run([str(pip_path), "install", "-r", str(requirements_file)], check=True)
         else:
-            print("requirements.txt not found. Installing default dependencies...")
-            default_dependencies = ["fastapi", "uvicorn", "psycopg2", "alembic"]
-            process = subprocess.Popen(
-                [str(pip_path), "install"] + default_dependencies,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate()
-            if process.returncode != 0:
-                print(f"Error installing default dependencies: {stderr.decode()}")
-                raise Exception(stderr.decode())
-            print(stdout.decode())
-    except Exception as e:
-        print(f"Error installing dependencies: {e}")
-        print(traceback.format_exc())
-        raise
+            subprocess.run([str(pip_path), "install", "fastapi", "uvicorn", "psycopg2", "alembic"], check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Dependency installation failed: {e}")
 
-    print("Environment setup and dependency installation completed successfully.")
+    print("Environment setup complete.")
 
 
+# Setup Database
 def setup_database():
-    print("Setting up PostgreSQL database and migrations...")
+    print("Setting up database (PostgreSQL + Alembic)...")
     project_root = Path("c:/study/autogen/generated_project")
-
-    # Create Alembic configuration
     alembic_ini = project_root / "alembic.ini"
-    alembic_ini.write_text(
-        """[alembic]
+    migrations_dir = project_root / "migrations"
+    migrations_dir.mkdir(exist_ok=True)
+
+    alembic_ini.write_text(f"""[alembic]
 script_location = migrations
-sqlalchemy.url = postgresql+psycopg://vectordb:vectordb@localhost:5432/vectordb
+sqlalchemy.url = postgresql+psycopg2://vectordb:vectordb@localhost:5432/vectordb
 
 [loggers]
 keys = root,sqlalchemy,alembic
@@ -281,17 +148,14 @@ keys = generic
 [logger_root]
 level = WARN
 handlers = console
-qualname =
 
 [logger_sqlalchemy]
 level = WARN
 handlers = console
-qualname = sqlalchemy.engine
 
 [logger_alembic]
 level = INFO
 handlers = console
-qualname = alembic
 
 [handler_console]
 class = StreamHandler
@@ -300,44 +164,53 @@ level = NOTSET
 formatter = generic
 
 [formatter_generic]
-format = %(asctime)s %(levelname)-5.5s [%(name)s] %(message)s
-"""
-    )
+format = %(levelname)-5.5s [%(name)s] %(message)s
+""")
 
-    # Initialize Alembic
-    migrations_path = project_root / "migrations"
-    subprocess.run(["alembic", "init", str(migrations_path)], check=True, cwd=str(project_root))
-
-    print("Database setup completed successfully.")
+    print("Alembic configuration written.")
 
 
+# Validate Project (placeholder)
 def validate_project():
-    print("Validating the generated project...")
-    project_root = Path("c:/study/autogen/generated_project")
+    print("Validating project structure...")
+    required_files = [
+        "app/main.py", "app/api/routes/__init__.py", "app/models/__init__.py",
+        "app/services/__init__.py", "app/core/config.py"
+    ]
+    base_path = Path("c:/study/autogen/generated_project")
+    for rel_path in required_files:
+        if not (base_path / rel_path).exists():
+            raise FileNotFoundError(f"Missing file: {rel_path}")
+    print("All required files present.")
 
-    # Run the FastAPI application on a different port to avoid conflicts
-    main_file = project_root / "app/main.py"
-    if main_file.exists():
-        print("Starting the generated project on localhost:8001...")
-        try:
-            process = subprocess.Popen(
-                ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8001", "--reload"],
-                cwd=str(project_root),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate()
-            if process.returncode != 0:
-                print(f"Error starting the project: {stderr.decode()}")
-                raise Exception(stderr.decode())
-            print(stdout.decode())
-            print("Project is running at http://127.0.0.1:8001")
-        except Exception as e:
-            print(f"Error starting the project: {e}")
-            print(traceback.format_exc())
-            raise
-    else:
-        print("Main file not found. Validation failed.")
-        raise FileNotFoundError("Main file not found in the generated project.")
 
-    print("Project validation completed successfully.")
+# Main Execution Pipeline
+def execute_pipeline(requirements):
+    try:
+        print("=== Step 1: Analyze SRS Document ===")
+        extracted = analyze_srs_document(requirements["srs_document"])
+        print("SRS Document analyzed.")
+
+        print("=== Step 2: Generate Code ===")
+        generate_code(extracted)
+
+        print("=== Step 3: Setup Environment ===")
+        setup_environment()
+
+        print("=== Step 4: Setup Database ===")
+        setup_database()
+
+        print("=== Step 5: Validate Project ===")
+        validate_project()
+
+        print("Pipeline executed successfully.")
+
+    except Exception as e:
+        print(f"Pipeline error: {e}")
+        traceback.print_exc()
+
+
+# Example usage:
+# with open("path_to_srs.docx", "rb") as f:
+#     srs_data = f.read()
+# execute_pipeline({"srs_document": srs_data})
