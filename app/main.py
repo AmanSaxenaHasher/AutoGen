@@ -35,4 +35,4 @@ def read_root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8002, reload=True)
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8080, reload=True)  # Changed port to 8080
