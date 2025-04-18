@@ -2,4 +2,3 @@ __pycache__
 *._pyc
 .env
 venv
-generated_project
