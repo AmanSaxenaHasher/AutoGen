@@ -5,9 +5,7 @@ This project is a FastAPI-based system that takes a Software Requirements Specif
 ## Features
 - Analyze SRS documents (text or image).
 - Generate project folder structure and code.
-- Set up and integrate a PostgreSQL database.
 - Automated debugging and testing.
-- Seamless deployment with Docker.
 
 ## How to Run
 1. Install dependencies:
@@ -18,15 +16,4 @@ This project is a FastAPI-based system that takes a Software Requirements Specif
    ```bash
    uvicorn app.main:app --reload
    ```
-3. Access the API at `http://127.0.0.1:8000`.
-
-## Deployment
-To deploy using Docker:
-1. Build the Docker image:
-   ```bash
-   docker build -t srs-analyzer .
-   ```
-2. Run the Docker container:
-   ```bash
-   docker run -p 8000:8000 srs-analyzer
-   ```
+3. Access the API at `http://127.0.0.1:8080`.

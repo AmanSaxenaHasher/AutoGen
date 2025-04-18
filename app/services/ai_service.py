@@ -111,7 +111,7 @@ def setup_node(state):
 
     prompt =  f"""
 
-    Based on the following project analysis, generate the complete FastAPI project structure in JSON format.
+    Based on the following project analysis, generate the complete FastAPI project structure along with its code in JSON format.
 
     Return ONLY valid JSON without any additional text, markdown formatting, or explanations.
 
@@ -144,26 +144,6 @@ def setup_node(state):
 
     Database Schema: {db_schema}
 
-    
-
-    Example JSON format:
-
-    {{
-        "app/": {{
-            "routers/": {{
-                "user.py": "content of user.py",
-                "item.py": "content of item.py"
-            }},
-            "models/": {{
-                "user.py": "content of user.py",
-                "item.py": "content of item.py"
-            }},
-            "__init__.py": "content of __init__.py",
-            "main.py": "content of main.py"
-        }},
-        "requirements.txt": "fastapi\\nuvicorn\\npsycopg2-binary\\nalembic\\nsqlalchemy\\npython-dotenv",
-        "setup.sh": "content of setup.sh"
-    }}
     """
 
     llm = initialize_groq_llm()
